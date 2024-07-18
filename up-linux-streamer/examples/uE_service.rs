@@ -4,8 +4,7 @@ use log::error;
 use protobuf::Message;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
-use up_rust::{UListener, UMessage, UMessageBuilder, UPayloadFormat, UStatus, UTransport, UUri};
+use up_rust::{UListener, UMessage, UMessageBuilder, UStatus, UTransport, UUri};
 use up_transport_zenoh::UPClientZenoh;
 use zenoh::config::Config;
 
@@ -13,13 +12,6 @@ const SERVICE_AUTHORITY: &str = "linux";
 const SERVICE_UE_ID: u16 = 0x1236;
 const SERVICE_UE_VERSION_MAJOR: u8 = 1;
 const SERVICE_RESOURCE_ID: u16 = 0x0896;
-
-const CLIENT_AUTHORITY: &str = "me_authority";
-const CLIENT_UE_ID: u16 = 0x5678;
-const CLIENT_UE_VERSION_MAJOR: u8 = 1;
-const CLIENT_RESOURCE_ID: u16 = 0;
-
-const REQUEST_TTL: u32 = 1000;
 
 struct ServiceRequestResponder {
     client: Arc<dyn UTransport>,

@@ -1,64 +1,119 @@
+mod config;
+
+use crate::config::{Config, HostTransport};
+use clap::Parser;
 use log::trace;
-use std::fs::canonicalize;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::Read;
 use std::sync::Arc;
-use std::thread;
-use up_rust::UStatus;
-use up_rust::UTransport;
+use std::{env, thread};
+use up_rust::{UCode, UStatus, UTransport};
 use up_streamer::{Endpoint, UStreamer};
 use up_transport_vsomeip::UPTransportVsomeip;
 use up_transport_zenoh::UPClientZenoh;
-use zenoh::config::Config;
+use zenoh::config::Config as ZenohConfig;
+
+#[derive(Parser)]
+#[command()]
+struct StreamerArgs {
+    #[arg(short, long, value_name = "FILE")]
+    config: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), UStatus> {
     env_logger::init();
 
-    let mut streamer = UStreamer::new("up-linux-streamer", 10000);
+    let args = StreamerArgs::parse();
 
-    let crate_dir = env!("CARGO_MANIFEST_DIR");
-    // TODO: Make configurable to pass the path to the vsomeip config as a command line argument
-    let vsomeip_config = PathBuf::from(crate_dir).join("vsomeip-configs/point_to_point.json");
-    let vsomeip_config = canonicalize(vsomeip_config).ok();
-    trace!("vsomeip_config: {vsomeip_config:?}");
+    let mut file = File::open(args.config)
+        .map_err(|e| UStatus::fail_with_code(UCode::NOT_FOUND, format!("File not found: {e:?}")))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).map_err(|e| {
+        UStatus::fail_with_code(
+            UCode::INTERNAL,
+            format!("Unable to read config file: {e:?}"),
+        )
+    })?;
 
-    // There will be a single vsomeip_transport, as there is a connection into device and a streamer
-    // TODO: Add error handling if we fail to create a UPTransportVsomeip
-    let vsomeip_transport: Arc<dyn UTransport> = Arc::new(
-        UPTransportVsomeip::new_with_config(&"linux".to_string(), 10, &vsomeip_config.unwrap())
-            .unwrap(),
+    let config: Config = json5::from_str(&contents).map_err(|e| {
+        UStatus::fail_with_code(
+            UCode::INTERNAL,
+            format!("Unable to parse config file: {e:?}"),
+        )
+    })?;
+
+    let mut streamer = UStreamer::new(
+        "up-linux-streamer",
+        config.up_streamer_config.message_queue_size,
     );
 
-    // TODO: Probably make somewhat configurable?
-    let zenoh_config = Config::default();
-    // TODO: Add error handling if we fail to create a UPClientZenoh
-    let zenoh_transport: Arc<dyn UTransport> = Arc::new(
-        UPClientZenoh::new(zenoh_config, "linux".to_string())
-            .await
-            .unwrap(),
-    );
-    // TODO: Make configurable to pass the name of the mE authority as a  command line argument
-    let vsomeip_endpoint = Endpoint::new(
-        "vsomeip_endpoint",
-        "me_authority",
-        vsomeip_transport.clone(),
+    let zenoh_config = ZenohConfig::default();
+    let host_transport: Arc<dyn UTransport> = Arc::new(match config.host_config.transport {
+        HostTransport::Zenoh => {
+            UPClientZenoh::new(zenoh_config, config.host_config.authority.clone())
+                .await
+                .expect("Unable to initialize Zenoh UTransport")
+        } // other host transports can be added here as they become available
+    });
+
+    let host_endpoint = Endpoint::new(
+        "host_endpoint",
+        &config.host_config.authority,
+        host_transport.clone(),
     );
 
-    // TODO: Make configurable the ability to have perhaps a config file we pass in that has all the
-    //  relevant authorities over Zenoh that should be forwarded
-    let zenoh_transport_endpoint_a = Endpoint::new(
-        "zenoh_transport_endpoint_a",
-        "linux", // simple initial case of streamer + intended high compute destination on same device
-        zenoh_transport.clone(),
-    );
+    if config.someip_config.enabled {
+        let someip_config_file_abs_path = if config.someip_config.config_file.is_relative() {
+            env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join(&config.someip_config.config_file)
+        } else {
+            config.someip_config.config_file
+        };
+        trace!("someip_config_file_abs_path: {someip_config_file_abs_path:?}");
+        if !someip_config_file_abs_path.exists() {
+            panic!(
+                "The specified someip config_file doesn't exist: {someip_config_file_abs_path:?}"
+            );
+        }
 
-    // TODO: Per Zenoh endpoint configured, run these two rules
-    streamer
-        .add_forwarding_rule(vsomeip_endpoint.clone(), zenoh_transport_endpoint_a.clone())
-        .await?;
-    streamer
-        .add_forwarding_rule(zenoh_transport_endpoint_a.clone(), vsomeip_endpoint.clone())
-        .await?;
+        // There will be at most one vsomeip_transport, as there is a connection into device and a streamer
+        let someip_transport: Arc<dyn UTransport> = Arc::new(
+            UPTransportVsomeip::new_with_config(
+                &config.host_config.authority,
+                &config.someip_config.authority,
+                config
+                    .someip_config
+                    .default_someip_application_id_for_someip_subscriptions,
+                &someip_config_file_abs_path,
+            )
+            .expect("Unable to initialize vsomeip UTransport"),
+        );
+
+        let mechatronics_endpoint = Endpoint::new(
+            "mechatronics_endpoint",
+            &config.someip_config.authority,
+            someip_transport.clone(),
+        );
+        let forwarding_res = streamer
+            .add_forwarding_rule(mechatronics_endpoint.clone(), host_endpoint.clone())
+            .await;
+
+        if let Err(err) = forwarding_res {
+            panic!("Unable to add forwarding result: {err:?}");
+        }
+
+        let forwarding_res = streamer
+            .add_forwarding_rule(host_endpoint.clone(), mechatronics_endpoint.clone())
+            .await;
+
+        if let Err(err) = forwarding_res {
+            panic!("Unable to add forwarding result: {err:?}");
+        }
+    }
 
     thread::park();
 

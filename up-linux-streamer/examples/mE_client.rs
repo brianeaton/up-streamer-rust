@@ -6,9 +6,8 @@ use std::fs::canonicalize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use up_rust::{UListener, UMessage, UMessageBuilder, UPayloadFormat, UStatus, UTransport, UUri};
+use up_rust::{UListener, UMessage, UMessageBuilder, UStatus, UTransport, UUri};
 use up_transport_vsomeip::UPTransportVsomeip;
-use zenoh::config::Config;
 
 const SERVICE_AUTHORITY: &str = "linux";
 const SERVICE_UE_ID: u16 = 0x1236;
@@ -21,6 +20,8 @@ const CLIENT_UE_VERSION_MAJOR: u8 = 1;
 const CLIENT_RESOURCE_ID: u16 = 0;
 
 const REQUEST_TTL: u32 = 1000;
+
+const REMOTE_AUTHORITY: &str = "linux";
 
 struct ServiceResponseListener;
 
@@ -62,6 +63,7 @@ async fn main() -> Result<(), UStatus> {
     let client: Arc<dyn UTransport> = Arc::new(
         UPTransportVsomeip::new_with_config(
             &CLIENT_AUTHORITY.to_string(),
+            &REMOTE_AUTHORITY.to_string(),
             CLIENT_UE_ID,
             &vsomeip_config.unwrap(),
         )

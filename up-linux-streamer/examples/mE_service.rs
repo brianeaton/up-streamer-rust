@@ -14,6 +14,8 @@ const SERVICE_UE_ID: u16 = 0x4321;
 const SERVICE_UE_VERSION_MAJOR: u8 = 1;
 const SERVICE_RESOURCE_ID: u16 = 0x0421;
 
+const REMOTE_AUTHORITY: &str = "linux";
+
 struct ServiceRequestResponder {
     client: Arc<dyn UTransport>,
 }
@@ -74,6 +76,7 @@ async fn main() -> Result<(), UStatus> {
     let service: Arc<dyn UTransport> = Arc::new(
         UPTransportVsomeip::new_with_config(
             &SERVICE_AUTHORITY.to_string(),
+            &REMOTE_AUTHORITY.to_string(),
             SERVICE_UE_ID,
             &vsomeip_config.unwrap(),
         )

@@ -3,7 +3,7 @@ use hello_world_protos::hello_world_service::{HelloRequest, HelloResponse};
 use protobuf::Message;
 use std::sync::Arc;
 use std::time::Duration;
-use up_rust::{UListener, UMessage, UMessageBuilder, UPayloadFormat, UStatus, UTransport, UUri};
+use up_rust::{UListener, UMessage, UMessageBuilder, UStatus, UTransport, UUri};
 use up_transport_zenoh::UPClientZenoh;
 use zenoh::config::Config;
 

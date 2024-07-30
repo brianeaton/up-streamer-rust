@@ -89,6 +89,7 @@ async fn main() -> Result<(), UStatus> {
                     .someip_config
                     .default_someip_application_id_for_someip_subscriptions,
                 &someip_config_file_abs_path,
+                None,
             )
             .expect("Unable to initialize vsomeip UTransport"),
         );

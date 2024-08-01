@@ -1,94 +1,89 @@
 # up-streamer-rust
 
+## up-streamer
+
 Generic, pluggable uStreamer that should be usable in most places we need
-to bridge from one transport to another.
+to write a uStreamer application to bridge from one transport to another.
 
-## Overview
+Reference its README.md for further details.
 
-Implementation of the uProtocol's uStreamer specification in Rust.
+## up-linux-streamer
 
-### Visual Breakdown
+Concrete implementation of a uStreamer as a binary.
 
-```mermaid
-sequenceDiagram 
-    participant main thread
-    participant TransportForwarder - Foo
-    participant TransportForwarder - Bar
-    participant UPClientFoo owned thread / task
-    participant UPClientBar owned thread / task
+Reference its README.md for further details.
 
-    main thread->>main thread: let utransport_foo: Arc<dyn UTransport> = Arc::new(UPClientFoo::new())
-    main thread->>main thread: let local_authority = ...
-    main thread->>main thread: let local_endpoint = Endpoint::new(local_authority.clone(), utransport_foo.clone())
+## Building
 
-    main thread->>main thread: let utransport_bar: Arc<dyn UTransport> = Arc::new(UPClientBar::new())
-    main thread->>main thread: let remote_authority = ...
-    main thread->>main thread: let remote_endpoint = Endpoint::new(remote_authority.clone(), utransport_bar.clone())
-  
-    main thread->>main thread: let ustreamer = UStreamer::new()
+Included is a dependency on [up-transport-vsomeip-rust](https://github.com/eclipse-uprotocol/up-transport-vsomeip-rust) in order to communicate via SOME/IP that imposes some additional build considerations.
 
-    main thread->>main thread: ustreamer.add_forwarding_rule(local_endpoint, remote_endpoint)
-    main thread->>TransportForwarder - Foo: launch TransportForwarder - Foo
-    activate TransportForwarder - Foo
-    main thread->>UPClientFoo owned thread / task: (within ustreamer.add_forwarding_rule()) <br> local_endpoint.transport.lock().await.register_listener <br> (uauthority_to_uuri(remote_endpoint.authority), forwarding_listener).await
-    activate UPClientFoo owned thread / task
+Please reference the documentation for [vsomeip-sys](https://github.com/eclipse-uprotocol/up-transport-vsomeip-rust/tree/main/vsomeip-sys) and note
+* the build requirements for vsomeip in the linked documentation in the COVESA repo
+* the environment variables which must be set
 
-    main thread->>main thread: ustreamer.add_forwarding_rule(remote_endpoint, local_endpoint)
-    main thread->>TransportForwarder - Bar: launch TransportForwarder - Bar
-    activate TransportForwarder - Bar
-    main thread->>UPClientBar owned thread / task: (within ustreamer.add_forwarding_rule()) <br> remote_endpoint.transport.lock().await.register_listener <br> (uauthority_to_uuri(local_endpoint.authority), forwarding_listener).await
-    activate UPClientBar owned thread / task
+## Running examples
 
-    loop Park the main thread, let background tasks run until closing UStreamer app
+### Running the `up-linux-streamer`
 
-        par UPClientFoo thread / task calls ForwardingListener.on_receive()
-
-            UPClientFoo owned thread / task->>UPClientFoo owned thread / task: forwarding_listener.on_receive(UMessage)
-            UPClientFoo owned thread / task-->>TransportForwarder - Foo: Send UMesssage over channel
-            TransportForwarder - Foo->>TransportForwarder - Foo: out_transport.send(UMessage) <br> (out_transport => utransport_bar in this case)
-
-        end
-
-        par UPClientBar thread / task calls ForwardingListener.on_receive()
-
-            UPClientBar owned thread / task->>UPClientBar owned thread / task: forwarding_listener.on_receive(UMessage)
-            UPClientBar owned thread / task-->>TransportForwarder - Bar: Send UMesssage over channel
-            TransportForwarder - Bar->>TransportForwarder - Bar: out_transport.send(UMessage) <br> (out_transport => utransport_foo in this case)
-
-        end
-
-        deactivate UPClientFoo owned thread / task
-        deactivate UPClientBar owned thread / task
-        deactivate TransportForwarder - Foo
-        deactivate TransportForwarder - Bar
-
-    end
-```
-
-### Generating cargo docs locally
-
-Documentation can be generated locally with:
+To run one of the examples below and see client and service communicate, you'll need to run the `up-linux-streamer` to bridge between the transports in a terminal:
 
 ```bash
-cargo doc --package up-streamer --open
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<path/to/vsomeip/lib> cargo run -- --config up-linux-streamer/DEFAULT_CONFIG.json5
 ```
 
-which will open your browser to view the docs.
+### Mechatronics client to high compute service
 
-## Getting Started
+Launch the `uE_service` example in another terminal:
 
-### Working with the library
+```bash
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<path/to/vsomeip/lib> cargo run --example uE_service
+```
 
-`up-streamer-rust` is generic and pluggable and can serve your needs so long as
-* Each transport you want to bridge over has a `up-client-foo-rust` library
-   and UPClientFoo struct which has `impl`ed `UTransport`
+Launch the `mE_client` example in another terminal:
 
-### Usage
+```bash
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<path/to/vsomeip/lib> cargo run --example mE_client 
+```
 
-After following along with the [cargo docs](#generating-cargo-docs-locally) generated to add all your forwarding rules, you'll then need to keep the instantiated `UStreamer` around and then pause the main thread, so it will not exit, while the routing happens in the background threads spun up.
+The service and client will run forever. Every second a new message is sent from the mE_client via vsomeip. That vsomeip message is caught and routed over Zenoh to the uE_service. The response makes the same journey in reverse.
 
-## Implementation Status
+It's intended that you see the following in the terminal running the `mE_client`:
 
-- [x] Routing of Request, Response, and Notification Messages
-- [ ] Routing of Publish messages (requires further development of uSubscription interface)
-- [x] Mechanism to retrieve messages received on and sent over transports
+> Sending Request message:
+UMessage { attributes: MessageField(Some(UAttributes { id: MessageField(Some(UUID { msb: 112888656100425728, lsb: 9811577761723054400, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), type_: UMESSAGE_TYPE_REQUEST, source: MessageField(Some(UUri { authority_name: "me_authority", ue_id: 22136, ue_version_major: 1, resource_id: 0, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), sink: MessageField(Some(UUri { authority_name: "linux", ue_id: 4662, ue_version_major: 1, resource_id: 2198, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), priority: UPRIORITY_CS4, ttl: Some(1000), permission_level: None, commstatus: None, reqid: MessageField(None), token: None, traceparent: None, payload_format: UPAYLOAD_FORMAT_PROTOBUF, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), **payload: Some(b"\n\rme_client@i=3")**, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } }
+
+This is the request message we will send _from_ the mE_client over vsomeip.
+
+Note the payload is listed with `@i=3`. This number is incremented on each send so that we can trace the message back and forth over the `up-linux-streamer`.
+
+You should then see something like this in the `uE_service` terminal:
+
+> ServiceRequestResponder: Received a message: UMessage { attributes: MessageField(Some(UAttributes { id: MessageField(Some(UUID { msb: 112888656100622336, lsb: 10998499817480005337, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), type_: UMESSAGE_TYPE_REQUEST, source: MessageField(Some(UUri { authority_name: "me_authority", ue_id: 257, ue_version_major: 1, resource_id: 0, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), sink: MessageField(Some(UUri { authority_name: "linux", ue_id: 4662, ue_version_major: 1, resource_id: 2198, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), priority: UPRIORITY_CS4, ttl: Some(1000), permission_level: None, commstatus: None, reqid: MessageField(None), token: None, traceparent: None, payload_format: UPAYLOAD_FORMAT_UNSPECIFIED, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), **payload: Some(b"\n\rme_client@i=3")**, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } }
+
+Note that the message we received in the uE_service through the streamer still shows the payload with `@i=3`.
+
+If you again reference the terminal where `mE_client` is running you should see the the response message printed:
+
+> ServiceResponseListener: Received a message: UMessage { attributes: MessageField(Some(UAttributes { id: MessageField(Some(UUID { msb: 112888656101015552, lsb: 9811577761723054400, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), type_: UMESSAGE_TYPE_RESPONSE, source: MessageField(Some(UUri { authority_name: "linux", ue_id: 4662, ue_version_major: 1, resource_id: 2198, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), sink: MessageField(Some(UUri { authority_name: "me_authority", ue_id: 257, ue_version_major: 1, resource_id: 0, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), priority: UPRIORITY_CS4, ttl: None, permission_level: None, commstatus: Some(INTERNAL), reqid: MessageField(Some(UUID { msb: 112888656100425728, lsb: 9811577761723054400, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), token: None, traceparent: None, payload_format: UPAYLOAD_FORMAT_UNSPECIFIED, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } })), **payload: Some(b"\nThe response to the request: me_client@i=3")**, special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } }
+
+Note that the response also contains `@i=3` showing that we have received a response for the original request containing that in the payload.
+
+Further, you will see printed the deserialized `HelloResponse` ProtoBuf object:
+
+> Here we received response: HelloResponse { message: "The response to the request: me_client@i=3", special_fields: SpecialFields { unknown_fields: UnknownFields { fields: None }, cached_size: CachedSize { size: 0 } } }
+
+### High compute service to mechatronics client
+
+Launch the `mE_service` example in another terminal:
+
+```bash
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<path/to/vsomeip/lib> cargo run --example mE_service
+```
+
+Launch the `uE_client` example in another terminal:
+
+```bash
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<path/to/vsomeip/lib> cargo run --example uE_client 
+```
+
+We omit a detail explanation of the expected terminal output as it's a mirror of the `Mechatronics client to high compute service` heading above.

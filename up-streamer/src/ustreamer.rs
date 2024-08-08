@@ -712,6 +712,15 @@ impl UListener for ForwardingListener {
             FORWARDING_LISTENER_FN_ON_RECEIVE_TAG,
             &msg
         );
+
+        if msg.attributes.payload_format.enum_value_or_default() == up_rust::UPayloadFormat::UPAYLOAD_FORMAT_SHM {
+            debug!(
+                "{}:{}:{} Received message with UPayloadFormat::UPAYLOAD_FORMAT_SHM, which is not supported",
+                self.forwarding_id, FORWARDING_LISTENER_TAG, FORWARDING_LISTENER_FN_ON_RECEIVE_TAG
+            );
+            return;
+        }
+
         if let Err(e) = self.sender.send(Arc::new(msg)).await {
             error!(
                 "{}:{}:{} Unable to send message to worker pool: {e:?}",
